@@ -1,0 +1,10 @@
+uploads/
+outputs/
+*.xlsx
+*.xls
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+README.md

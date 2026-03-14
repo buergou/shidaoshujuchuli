@@ -1,0 +1,9 @@
+uploads/
+outputs/
+*.xlsx
+*.xls
+deploy.zip
+__pycache__/
+*.pyc
+.env
+.codebuddy/
