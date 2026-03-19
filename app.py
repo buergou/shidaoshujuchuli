@@ -3,8 +3,21 @@ import pandas as pd
 import os
 from werkzeug.utils import secure_filename
 import io
+import sys
+import webbrowser
+import threading
+import time
 
-app = Flask(__name__)
+# 获取程序运行路径（支持 PyInstaller 打包）
+if getattr(sys, 'frozen', False):
+    # 如果是打包后的 EXE
+    application_path = sys._MEIPASS
+else:
+    # 如果是普通 Python 脚本
+    application_path = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(__name__,
+            template_folder=os.path.join(application_path, 'templates'))
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 UPLOAD_FOLDER = 'uploads'
@@ -15,29 +28,38 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 SKIP_VALUES = {'(跳过)', '（跳过）', '跳过', '( 跳过)', '（ 跳过）'}
 
 def process_questionnaire_data(df):
-    # 固定列名：前3列保持原样，D-M列用原始第1行（表头）的列名，固定共13列
-    fixed_columns = df.columns[:13].tolist()  # A-M共13列
-    num_fixed_tail = 10  # D-M共10列（索引3-12）
+    # 固定输出17列，列名固定为指定的格式
+    fixed_columns = [
+        '序号', '提交答卷时间', '所用时间', '来源', '来源详情', '来自IP',
+        '1、视导学科', '2、视导学校', '3、教研员', '4、目标内容',
+        '5、学习方式', '6、学生表现', '7、教学效果',
+        '8、作业布置（可选）', '9、科组生态', '10、是否好课堂', '11、评价与建议'
+    ]
 
     result_rows = []
 
     for idx, row in df.iterrows():
-        # 前3列（A-C）直接保留
-        basic_info = row.iloc[:3].tolist()
+        # 第7列（索引6）是"视导学科"列，前面的6列作为基本信息
+        basic_info = []
+        for i in range(6):  # 前6列：序号、提交答卷时间、所用时间、来源、来源详情、来自IP
+            basic_info.append(row.iloc[i] if i < len(row) else '')
 
-        # D列之后所有列，过滤掉跳过和空值，只保留有效值
+        # 视导学科列
+        subject = row.iloc[6] if len(row) > 6 else ''
+        basic_info.append(subject)
+
+        # 视导学科之后所有列，过滤掉跳过和空值，只保留有效值
         non_skip_values = []
-        for val in row.iloc[3:]:
+        for val in row.iloc[7:]:
             val_str = str(val).strip() if pd.notna(val) else ''
             if val_str not in SKIP_VALUES and val_str != '':
                 non_skip_values.append(val)
 
-        if non_skip_values:
-            # 有效值依次填入D-M列（最多10个），超出部分截断
-            tail = non_skip_values[:num_fixed_tail]
-            # 不足10个用空字符串补齐
-            tail += [''] * (num_fixed_tail - len(tail))
-            result_rows.append(basic_info + tail)
+        # 将有效值填入后10列，不足10个用空字符串补齐，超出部分截断
+        tail = non_skip_values[:10]
+        tail += [''] * (10 - len(tail))
+
+        result_rows.append(basic_info + tail)
 
     if not result_rows:
         return pd.DataFrame(columns=fixed_columns)
@@ -85,5 +107,15 @@ def upload_file():
     else:
         return jsonify({'error': '请上传Excel文件（.xlsx或.xls）'}), 400
 
+def open_browser():
+    """延迟打开浏览器"""
+    time.sleep(2)  # 等待服务启动
+    webbrowser.open('http://localhost:5000')
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # 如果是打包后的 EXE，自动打开浏览器
+    if getattr(sys, 'frozen', False):
+        # 在新线程中打开浏览器，避免阻塞服务器启动
+        threading.Thread(target=open_browser, daemon=True).start()
+
+    app.run(debug=False, host='0.0.0.0', port=5000, threaded=True)
