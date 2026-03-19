@@ -7,6 +7,18 @@ import sys
 import webbrowser
 import threading
 import time
+import logging
+
+# 配置日志，同时输出到文件和控制台
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # 获取程序运行路径（支持 PyInstaller 打包）
 if getattr(sys, 'frozen', False):
@@ -28,6 +40,13 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 SKIP_VALUES = {'(跳过)', '（跳过）', '跳过', '( 跳过)', '（ 跳过）'}
 
 def process_questionnaire_data(df):
+    # 打印原始文件的列名，用于调试
+    logger.info("\n" + "=" * 60)
+    logger.info("【调试】原始文件的列名:")
+    for i, col in enumerate(df.columns):
+        logger.info(f"  列{i}: {col}")
+    logger.info("=" * 60 + "\n")
+
     # 固定输出17列，列名固定为指定的格式
     fixed_columns = [
         '序号', '提交答卷时间', '所用时间', '来源', '来源详情', '来自IP',
@@ -67,6 +86,27 @@ def process_questionnaire_data(df):
     result_df = pd.DataFrame(result_rows, columns=fixed_columns)
     result_df = result_df.dropna(how='all')
 
+    # 【测试标记】检查代码是否执行
+    logger.info("\n" + "=" * 60)
+    logger.info("【重要】数据处理函数已执行！！！")
+    logger.info("=" * 60 + "\n")
+
+    # 按"2、视导学校"列排序，相同学校的数据集中在一起
+    result_df['2、视导学校'] = result_df['2、视导学校'].astype(str)
+
+    logger.info(f"【调试】排序前的学校列（前10个）: {result_df['2、视导学校'].head(10).tolist()}")
+    logger.info(f"【调试】排序前的学校列（后10个）: {result_df['2、视导学校'].tail(10).tolist()}")
+
+    result_df = result_df.sort_values(by='2、视导学校', na_position='last')
+    result_df = result_df.reset_index(drop=True)
+
+    logger.info(f"【调试】排序后的学校列（前10个）: {result_df['2、视导学校'].head(10).tolist()}")
+    logger.info(f"【调试】排序后的学校列（后10个）: {result_df['2、视导学校'].tail(10).tolist()}")
+    logger.info(f"【调试】总行数: {len(result_df)}")
+    
+    # 重新生成序号，保持连续性
+    result_df['序号'] = range(1, len(result_df) + 1)
+
     return result_df
 
 @app.route('/')
@@ -86,16 +126,22 @@ def upload_file():
     if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
         try:
             df = pd.read_excel(file)
-            
+
+            # 获取原始文件的列名
+            original_columns = list(df.columns)
+            logger.info(f"\n【调试】原始文件的列名: {original_columns}\n")
+
             original_shape = df.shape
             result_df = process_questionnaire_data(df)
             processed_shape = result_df.shape
-            
+
+            logger.info(f"【调试】最终输出的学校列（前10个）: {result_df['2、视导学校'].head(10).tolist()}\n")
+
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 result_df.to_excel(writer, index=False, sheet_name='处理结果')
             output.seek(0)
-            
+
             return send_file(
                 output,
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
